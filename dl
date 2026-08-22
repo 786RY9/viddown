@@ -23,8 +23,8 @@ IMAGE_NAME="viddown"
 # Always resolve to the real script location, even when called via symlink
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
-# Default output: ~/Downloads/viddown (created automatically)
-DEFAULT_OUTPUT="${HOME}/Downloads/viddown"
+# Default output: current working directory where viddown is executed
+DEFAULT_OUTPUT="$(pwd)"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 usage() {
@@ -40,7 +40,7 @@ usage() {
     $(basename "$0") --build / --rebuild     (Re)build the Docker image
     $(basename "$0") -h / --help             Show this help
 
-  Downloaded files go to: ${DEFAULT_OUTPUT}/
+  Downloaded files go to: current directory (or specify with -o <dir>)
   The Docker image is built automatically on first run.
 
 EOF

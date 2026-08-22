@@ -71,13 +71,19 @@ def banner() -> None:
 # ─── Curses menu ──────────────────────────────────────────────────────────────
 def curses_menu(stdscr, title: str, options: list[str], subtitle: str = "") -> int:
     """Arrow-key menu. Returns selected index (0-based) or -1 on Q/Escape."""
-    curses.curs_set(0)
-    curses.start_color()
-    curses.use_default_colors()
-    curses.init_pair(1, curses.COLOR_CYAN,   -1)  # selected item
-    curses.init_pair(2, curses.COLOR_YELLOW, -1)  # title
-    curses.init_pair(3, curses.COLOR_WHITE,  -1)  # normal item
-    curses.init_pair(4, curses.COLOR_BLACK,  -1)  # dim / hint
+    try:
+        curses.curs_set(0)
+    except Exception:
+        pass
+    try:
+        curses.start_color()
+        curses.use_default_colors()
+        curses.init_pair(1, curses.COLOR_CYAN,   -1)  # selected item
+        curses.init_pair(2, curses.COLOR_YELLOW, -1)  # title
+        curses.init_pair(3, curses.COLOR_WHITE,  -1)  # normal item
+        curses.init_pair(4, curses.COLOR_BLACK,  -1)  # dim / hint
+    except Exception:
+        pass
 
     current = 0
     while True:
@@ -221,16 +227,52 @@ def prompt_clip_times() -> tuple[str, str]:
 
 
 # Percentage-based progress  → normal HTTP downloads
-# e.g.: [download]  45.2% of 1.23GiB at 5.00MiB/s ETA 00:15
+# e.g.: [download]  45.2% of ~1.23GiB at 5.00MiB/s ETA 00:15
 DOWNLOAD_PCT_RE = re.compile(
-    r"\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+)"
+    r"\[download\]\s+([\d.]+)%"
 )
 
 # Fragment-based progress → DASH / HLS streams (YouTube 4K, etc.)
 # e.g.: [download] Downloading fragment 12 of 340
 DOWNLOAD_FRAG_RE = re.compile(
-    r"\[download\] Downloading fragment\s+(\d+)\s+of\s+(\d+)"
+    r"\[download\] Downloading fragment\s+(\d+)\s+of\s+(\d+|unknown)",
+    re.IGNORECASE,
 )
+
+# FFmpeg clip progress → e.g. time=00:01:23.45 or elapsed=0:00:12.34
+FFMPEG_TIME_RE = re.compile(
+    r"time=(\d+):(\d{2}):(\d{2})\.(\d+)"
+)
+FFMPEG_ELAPSED_RE = re.compile(
+    r"elapsed=(\d+):(\d{2}):(\d{2})\.(\d+)"
+)
+
+
+def iter_lines(proc):
+    """Yield stdout/stderr lines split by either \\r or \\n from raw file descriptor."""
+    fd = proc.stdout.fileno()
+    buffer = ""
+    while True:
+        try:
+            chunk_bytes = os.read(fd, 1024)
+        except OSError:
+            chunk_bytes = b""
+        if not chunk_bytes:
+            if buffer.strip():
+                yield buffer.strip()
+            break
+        buffer += chunk_bytes.decode("utf-8", errors="replace")
+        while "\r" in buffer or "\n" in buffer:
+            r_pos = buffer.find("\r")
+            n_pos = buffer.find("\n")
+            if r_pos != -1 and (n_pos == -1 or r_pos < n_pos):
+                line = buffer[:r_pos]
+                buffer = buffer[r_pos + 1:]
+            else:
+                line = buffer[:n_pos]
+                buffer = buffer[n_pos + 1:]
+            if line.strip():
+                yield line.strip()
 
 
 def _make_progress() -> Progress:
@@ -247,56 +289,105 @@ def _make_progress() -> Progress:
     )
 
 
-def _worker(yt_args: list[str], label: str, progress: Progress, task_id: TaskID) -> int:
+def _worker(
+    yt_args: list[str],
+    label: str,
+    progress: Progress,
+    task_id: TaskID,
+    clip: Optional[tuple[str, str]] = None,
+) -> int:
     """
     Run a single yt-dlp process, updating the given Rich progress task.
-    Handles both:
+    Handles:
       - Percentage-based progress (HTTP, single-file streams)
       - Fragment-based progress   (DASH / HLS streams — YouTube 4K, etc.)
+      - FFmpeg time progress      (Clip downloads)
     Returns the yt-dlp exit code.
     """
     proc = subprocess.Popen(
-        ["yt-dlp"] + yt_args,
+        [YTDLP_BIN] + yt_args,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
+        text=False,
+        bufsize=0,
+        env={**os.environ, "PYTHONUNBUFFERED": "1"},  # ensure unbuffered output
     )
 
     phase      = 0      # 0 = video, 1 = audio, 2 = post-processing
     last_pct   = 0.0
     total_frag = 0      # total fragments (DASH/HLS — learned from first match)
 
+    clip_duration = None
+    if clip:
+        try:
+            clip_duration = max(1, _to_seconds(clip[1]) - _to_seconds(clip[0]))
+        except Exception:
+            clip_duration = None
+
     # Immediately show the bar is alive
     progress.update(task_id, description=f"[cyan]{markup_escape(label[:40])}[/cyan] [dim]starting…[/dim]")
 
-    for raw_line in proc.stdout:
-        line = raw_line.rstrip()
-        if not line:
+    for line in iter_lines(proc):
+        # ── FFmpeg time progress (Clip section downloads) ─────────────────────
+        time_match = FFMPEG_TIME_RE.search(line)
+        if time_match:
+            h = int(time_match.group(1))
+            m = int(time_match.group(2))
+            s = int(time_match.group(3))
+            curr_sec = h * 3600 + m * 60 + s
+            if clip_duration and clip_duration > 0:
+                pct = min(99.0, max(0.0, (curr_sec / clip_duration) * 100.0))
+                last_pct = pct
+                safe_label = markup_escape(label[:28])
+                progress.update(
+                    task_id,
+                    completed=pct,
+                    description=f"[cyan]{safe_label}[/cyan] [dim]{h:02d}:{m:02d}:{s:02d}[/dim]",
+                )
+            continue
+
+        if "time=N/A" in line:
+            el_match = FFMPEG_ELAPSED_RE.search(line)
+            if el_match:
+                em = el_match.group(2)
+                es = el_match.group(3)
+                safe_label = markup_escape(label[:28])
+                progress.update(
+                    task_id,
+                    description=f"[cyan]{safe_label}[/cyan] [dim]seeking… {em}:{es}[/dim]",
+                )
             continue
 
         # ── Fragment-based (DASH / HLS — YouTube 4K, Instagram, etc.) ─────────
         frag_match = DOWNLOAD_FRAG_RE.search(line)
         if frag_match:
             current_frag = int(frag_match.group(1))
-            total_frag   = int(frag_match.group(2))
-            if total_frag > 0:
-                pct = (current_frag / total_frag) * 100.0
-                # Detect audio phase reset
-                if pct < last_pct - 10 and last_pct > 80:
-                    phase += 1
-                    safe = markup_escape(label[:30])
-                    desc = (f"{safe} [dim](audio)[/dim]"
-                            if phase == 1 else markup_escape(label[:40]))
-                    progress.update(task_id, description=f"[cyan]{desc}[/cyan]", completed=0)
-                last_pct = pct
+            total_frag_str = frag_match.group(2)
+            if total_frag_str.isdigit():
+                total_frag = int(total_frag_str)
+                if total_frag > 0:
+                    pct = (current_frag / total_frag) * 100.0
+                    # Detect audio phase reset
+                    if pct < last_pct - 15:
+                        phase += 1
+                        safe = markup_escape(label[:30])
+                        desc = (f"{safe} [dim](audio)[/dim]"
+                                if phase == 1 else markup_escape(label[:40]))
+                        progress.update(task_id, description=f"[cyan]{desc}[/cyan]", completed=0)
+                    last_pct = pct
+                    progress.update(
+                        task_id,
+                        completed=pct,
+                        description=(
+                            f"[cyan]{markup_escape(label[:28])}[/cyan] "
+                            f"[dim]frag {current_frag}/{total_frag}[/dim]"
+                        ),
+                    )
+            else:
+                safe = markup_escape(label[:28])
                 progress.update(
                     task_id,
-                    completed=pct,
-                    description=(
-                        f"[cyan]{markup_escape(label[:28])}[/cyan] "
-                        f"[dim]frag {current_frag}/{total_frag}[/dim]"
-                    ),
+                    description=f"[cyan]{safe}[/cyan] [dim]frag {current_frag}[/dim]",
                 )
             continue
 
@@ -353,6 +444,22 @@ RESUME_FLAGS = [
     "--retry-sleep", "5",              # wait 5 s between retries
 ]
 
+# Resolve the yt-dlp binary: prefer the active venv, then fall back to PATH.
+def _ytdlp_bin() -> str:
+    # Check the venv that ships with this install first
+    venv_bin = os.path.join(sys.prefix, "bin", "yt-dlp")
+    if os.path.isfile(venv_bin):
+        return venv_bin
+    # Fall back to whatever is on PATH
+    import shutil
+    found = shutil.which("yt-dlp")
+    if found:
+        return found
+    # Last resort: let subprocess raise a clear error
+    return "yt-dlp"
+
+YTDLP_BIN = _ytdlp_bin()
+
 
 def _base_args(
     url: str,
@@ -362,8 +469,9 @@ def _base_args(
     args = RESUME_FLAGS + [
         "-o", output_template,
         "--no-playlist",
+        "--no-quiet",          # ensure progress lines are emitted even in pipe mode
         "--progress",
-        "--newline",
+        "--newline",           # one progress line per \n (no \r overwriting)
     ]
     if clip:
         start, end = clip
@@ -377,13 +485,17 @@ def _base_args(
 
 # ─── yt-dlp helpers ───────────────────────────────────────────────────────────
 def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(["yt-dlp"] + args, capture_output=True, text=True)
+    return subprocess.run([YTDLP_BIN] + args, capture_output=True, text=True)
 
 
 def update_ytdlp() -> None:
     print(f"\n{CYAN}  Updating yt-dlp…{RESET}\n")
+    # Upgrade inside the same pip that manages the current env
+    pip_bin = os.path.join(sys.prefix, "bin", "pip")
+    if not os.path.isfile(pip_bin):
+        pip_bin = "pip"
     proc = subprocess.Popen(
-        ["pip", "install", "--upgrade", "yt-dlp"],
+        [pip_bin, "install", "--upgrade", "yt-dlp"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1,
     )
@@ -480,7 +592,7 @@ def download_video(
     console.print(f"\n  [cyan]Downloading {markup_escape(label)} + best audio…[/cyan]")
     yt_args = ["-f", f"{fmt_id}+bestaudio/best", "--merge-output-format", "mp4"]
     yt_args += _base_args(url, os.path.join(output_dir, tmpl), clip)
-    _run_single(yt_args, label, output_dir)
+    _run_single(yt_args, label, output_dir, clip)
 
 
 def download_audio(
@@ -489,29 +601,76 @@ def download_audio(
     clip: Optional[tuple[str, str]] = None,
 ) -> None:
     label = (f"audio clip ({clip[0]} → {clip[1]})" if clip
-             else "best audio (MP3)")
+              else "best audio (MP3)")
     tmpl  = ("%(title)s [audio] [%(section_start)s-%(section_end)s].%(ext)s"
-             if clip else "%(title)s [audio].%(ext)s")
+              if clip else "%(title)s [audio].%(ext)s")
 
     console.print(f"\n  [cyan]Downloading {markup_escape(label)}…[/cyan]")
     yt_args = ["-f", "bestaudio/best", "-x",
                "--audio-format", "mp3", "--audio-quality", "0"]
     yt_args += _base_args(url, os.path.join(output_dir, tmpl), clip)
-    _run_single(yt_args, label, output_dir)
+    _run_single(yt_args, label, output_dir, clip)
 
 
-def _run_single(yt_args: list[str], label: str, output_dir: str) -> None:
+def get_display_path(path: str) -> str:
+    """Format path for clean CLI output."""
+    if path == "/downloads":
+        return "current directory (./)"
+    if path.startswith("/downloads/"):
+        rel = path[len("/downloads/"):].lstrip("/")
+        return f"./{rel}"
+    home = os.path.expanduser("~")
+    if path.startswith(home):
+        return "~" + path[len(home):]
+    return path
+
+
+def prompt_change_output_dir(current_dir: str) -> str:
+    """Prompt user for a new download folder location."""
+    display_curr = get_display_path(current_dir)
+    print(f"\n  {BOLD}{CYAN}Set Download Save Folder{RESET}")
+    print(f"  {DIM}Current folder:{RESET} {YELLOW}{display_curr}{RESET}")
+    print(f"  {DIM}Enter a subfolder name or full path (e.g. clips or /home/ry/Videos):{RESET}")
+    try:
+        raw = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return current_dir
+    if not raw:
+        print(f"  {DIM}Keeping current folder: {display_curr}{RESET}\n")
+        return current_dir
+
+    if current_dir == "/downloads" and not raw.startswith("/"):
+        new_path = os.path.normpath(os.path.join("/downloads", raw))
+    else:
+        new_path = os.path.expanduser(raw)
+
+    try:
+        os.makedirs(new_path, exist_ok=True)
+        print(f"  {GREEN}✓ Save folder set to: {get_display_path(new_path)}{RESET}\n")
+        return new_path
+    except Exception as err:
+        print(f"  {RED}Could not create directory: {err}{RESET}\n")
+        return current_dir
+
+
+def _run_single(
+    yt_args: list[str],
+    label: str,
+    output_dir: str,
+    clip: Optional[tuple[str, str]] = None,
+) -> None:
     """Run a single download with a Rich progress bar."""
     with _make_progress() as progress:
         task_id = progress.add_task(
             f"[cyan]{markup_escape(label[:40])}[/cyan]", total=100
         )
-        rc = _worker(yt_args, label[:40], progress, task_id)
+        rc = _worker(yt_args, label[:40], progress, task_id, clip=clip)
 
     if rc == 0:
         console.print(
             f"\n  [bold green]✓ Done![/bold green]  "
-            f"[dim]Saved to {markup_escape(output_dir)}[/dim]"
+            f"[dim]Saved to {markup_escape(get_display_path(output_dir))}[/dim]"
         )
     else:
         console.print(f"\n  [bold red]✗ Download failed (exit {rc})[/bold red]")
@@ -619,6 +778,7 @@ MAIN_MENU_OPTIONS = [
     "🎙️   Download audio clip        (set time range · MP3)",
     "📦  Download multiple videos   (parallel · auto best quality)",
     "🎶  Download multiple as audio (parallel · MP3)",
+    "📁  Change save folder         (specify download location)",
     "🔄  Update yt-dlp to latest version",
     "❌  Quit",
 ]
@@ -729,29 +889,34 @@ def main() -> None:
                 print(f"{YELLOW}  No video formats — falling back to audio clip.{RESET}")
                 download_audio(args.url, args.output, cli_clip)
                 return
-            chosen = pick_video_quality(video_fmts, title)
-            if chosen is _BACK or chosen is None:
-                download_audio(args.url, args.output, cli_clip)
-            else:
-                download_video(args.url, chosen, args.output, cli_clip)
+            chosen = video_fmts[0]
+            download_video(args.url, chosen, args.output, cli_clip)
             return
 
     # ── Interactive menu loop ─────────────────────────────────────────────────
+    current_output_dir = args.output
+
     while True:
         choice = run_curses_menu(
             title="viddown  —  What would you like to do?",
             options=MAIN_MENU_OPTIONS,
-            subtitle="Use ↑ ↓ arrows to navigate, Enter to select",
+            subtitle=f"Save folder: {get_display_path(current_output_dir)}  ·  Use ↑ ↓ arrows to navigate",
         )
 
-        # Quit (index 7 or Q/Escape)
-        if choice == -1 or choice == 7:
+        # Quit (index 8 or Q/Escape)
+        if choice == -1 or choice == 8:
             print(f"\n  {DIM}Bye! — RY9 · {CONTACT_EMAIL}{RESET}\n")
             break
 
-        # Update yt-dlp (index 6)
-        if choice == 6:
+        # Update yt-dlp (index 7)
+        if choice == 7:
             update_ytdlp()
+            input(f"\n  {DIM}Press Enter to return to menu…{RESET}")
+            continue
+
+        # Change save folder (index 6)
+        if choice == 6:
+            current_output_dir = prompt_change_output_dir(current_output_dir)
             input(f"\n  {DIM}Press Enter to return to menu…{RESET}")
             continue
 
@@ -760,7 +925,7 @@ def main() -> None:
             audio_only = (choice == 5)
             urls = prompt_multiple_urls()
             if urls:
-                parallel_download(urls, args.output, audio_only)
+                parallel_download(urls, current_output_dir, audio_only)
             input(f"\n  {DIM}Press Enter to return to menu…{RESET}")
             continue
 
@@ -782,7 +947,7 @@ def main() -> None:
             s_fmt, e_fmt = clip
             print(f"\n  {DIM}Clip: {CYAN}{s_fmt}{DIM} → {CYAN}{e_fmt}{RESET}\n")
 
-        run_download_flow(url, args.output, audio_only, clip)
+        run_download_flow(url, current_output_dir, audio_only, clip)
 
         print(f"\n  {DIM}Press Enter to return to menu, or Ctrl+C to quit…{RESET}")
         try:
