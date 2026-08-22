@@ -212,9 +212,16 @@ def prompt_clip_times() -> tuple[str, str]:
         return start, end
 
 
-# ─── Rich progress ────────────────────────────────────────────────────────────
-DOWNLOAD_RE = re.compile(
-    r"\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+)\s*([\w]+)"
+# Percentage-based progress  → normal HTTP downloads
+# e.g.: [download]  45.2% of 1.23GiB at 5.00MiB/s ETA 00:15
+DOWNLOAD_PCT_RE = re.compile(
+    r"\[download\]\s+([\d.]+)%\s+of\s+~?\s*([\d.]+)"
+)
+
+# Fragment-based progress → DASH / HLS streams (YouTube 4K, etc.)
+# e.g.: [download] Downloading fragment 12 of 340
+DOWNLOAD_FRAG_RE = re.compile(
+    r"\[download\] Downloading fragment\s+(\d+)\s+of\s+(\d+)"
 )
 
 
@@ -235,6 +242,9 @@ def _make_progress() -> Progress:
 def _worker(yt_args: list[str], label: str, progress: Progress, task_id: TaskID) -> int:
     """
     Run a single yt-dlp process, updating the given Rich progress task.
+    Handles both:
+      - Percentage-based progress (HTTP, single-file streams)
+      - Fragment-based progress   (DASH / HLS streams — YouTube 4K, etc.)
     Returns the yt-dlp exit code.
     """
     proc = subprocess.Popen(
@@ -245,28 +255,60 @@ def _worker(yt_args: list[str], label: str, progress: Progress, task_id: TaskID)
         bufsize=1,
     )
 
-    phase    = 0      # 0 = video stream, 1 = audio stream, 2 = merging
-    last_pct = 0.0
+    phase      = 0      # 0 = video, 1 = audio, 2 = post-processing
+    last_pct   = 0.0
+    total_frag = 0      # total fragments (DASH/HLS — learned from first match)
+
+    # Immediately show the bar is alive
+    progress.update(task_id, description=f"[cyan]{markup_escape(label[:40])}[/cyan] [dim]starting…[/dim]")
 
     for raw_line in proc.stdout:
         line = raw_line.rstrip()
         if not line:
             continue
 
-        match_obj = DOWNLOAD_RE.search(line)
-        if match_obj:
-            pct = float(match_obj.group(1))
-            # Detect phase reset: yt-dlp restarts from ~0% when downloading audio
+        # ── Fragment-based (DASH / HLS — YouTube 4K, Instagram, etc.) ─────────
+        frag_match = DOWNLOAD_FRAG_RE.search(line)
+        if frag_match:
+            current_frag = int(frag_match.group(1))
+            total_frag   = int(frag_match.group(2))
+            if total_frag > 0:
+                pct = (current_frag / total_frag) * 100.0
+                # Detect audio phase reset
+                if pct < last_pct - 10 and last_pct > 80:
+                    phase += 1
+                    safe = markup_escape(label[:30])
+                    desc = (f"{safe} [dim](audio)[/dim]"
+                            if phase == 1 else markup_escape(label[:40]))
+                    progress.update(task_id, description=f"[cyan]{desc}[/cyan]", completed=0)
+                last_pct = pct
+                progress.update(
+                    task_id,
+                    completed=pct,
+                    description=(
+                        f"[cyan]{markup_escape(label[:28])}[/cyan] "
+                        f"[dim]frag {current_frag}/{total_frag}[/dim]"
+                    ),
+                )
+            continue
+
+        # ── Percentage-based (normal HTTP streams) ────────────────────────────
+        pct_match = DOWNLOAD_PCT_RE.search(line)
+        if pct_match:
+            pct = float(pct_match.group(1))
+            # Detect audio phase reset
             if pct < last_pct - 10 and last_pct > 80:
                 phase += 1
-                safe_label = markup_escape(label[:30])
-                new_desc = (f"{safe_label} [dim](audio)[/dim]"
-                            if phase == 1 else markup_escape(label[:40]))
-                progress.update(task_id, description=new_desc, completed=0)
+                safe = markup_escape(label[:30])
+                desc = (f"{safe} [dim](audio)[/dim]"
+                        if phase == 1 else markup_escape(label[:40]))
+                progress.update(task_id, description=f"[cyan]{desc}[/cyan]", completed=0)
             last_pct = pct
             progress.update(task_id, completed=pct)
+            continue
 
-        elif "[Merger]" in line or "[SectionDownloader]" in line:
+        # ── Post-processing lines ─────────────────────────────────────────────
+        if "[Merger]" in line or "[SectionDownloader]" in line:
             safe_label = markup_escape(label[:32])
             progress.update(
                 task_id,
@@ -281,7 +323,6 @@ def _worker(yt_args: list[str], label: str, progress: Progress, task_id: TaskID)
                 completed=100,
             )
         elif line.startswith("ERROR:") or "[error]" in line.lower():
-            # Use markup_escape so yt-dlp error text can't break Rich rendering
             console.print(f"  [red]{markup_escape(line)}[/red]")
 
     proc.wait()
