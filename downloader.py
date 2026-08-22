@@ -295,13 +295,14 @@ def _worker(
     progress: Progress,
     task_id: TaskID,
     clip: Optional[tuple[str, str]] = None,
+    video_duration: Optional[float] = None,
 ) -> int:
     """
     Run a single yt-dlp process, updating the given Rich progress task.
     Handles:
       - Percentage-based progress (HTTP, single-file streams)
       - Fragment-based progress   (DASH / HLS streams — YouTube 4K, etc.)
-      - FFmpeg time progress      (Clip downloads)
+      - FFmpeg time progress      (Clip & m3u8 downloads)
     Returns the yt-dlp exit code.
     """
     proc = subprocess.Popen(
@@ -328,15 +329,16 @@ def _worker(
     progress.update(task_id, description=f"[cyan]{markup_escape(label[:40])}[/cyan] [dim]starting…[/dim]")
 
     for line in iter_lines(proc):
-        # ── FFmpeg time progress (Clip section downloads) ─────────────────────
+        # ── FFmpeg / m3u8 time progress ───────────────────────────────────────
         time_match = FFMPEG_TIME_RE.search(line)
         if time_match:
             h = int(time_match.group(1))
             m = int(time_match.group(2))
             s = int(time_match.group(3))
             curr_sec = h * 3600 + m * 60 + s
-            if clip_duration and clip_duration > 0:
-                pct = min(99.0, max(0.0, (curr_sec / clip_duration) * 100.0))
+            target_dur = clip_duration or video_duration
+            if target_dur and target_dur > 0:
+                pct = min(99.0, max(0.0, (curr_sec / target_dur) * 100.0))
                 last_pct = pct
                 safe_label = markup_escape(label[:28])
                 progress.update(
@@ -439,6 +441,7 @@ def _worker(
 # ─── Core download flags (resume / retry) ────────────────────────────────────
 RESUME_FLAGS = [
     "--continue",                      # resume partial downloads
+    "--concurrent-fragments", "8",     # 8x multi-threaded parallel fragment downloads (fast 2K/4K)
     "--fragment-retries", "infinite",  # retry failed fragments until success
     "--retries", "10",                 # retry full download up to 10 times
     "--retry-sleep", "5",              # wait 5 s between retries
@@ -515,7 +518,7 @@ def update_ytdlp() -> None:
         print(f"\n  {RED}Update failed (exit {proc.returncode}).{RESET}")
 
 
-def fetch_formats(url: str) -> tuple[list[dict], str]:
+def fetch_formats(url: str) -> tuple[list[dict], str, Optional[float]]:
     print(f"  {DIM}Fetching available formats…{RESET}")
     result = run_ytdlp(["--dump-json", "--no-playlist", url])
     if result.returncode != 0:
@@ -523,18 +526,30 @@ def fetch_formats(url: str) -> tuple[list[dict], str]:
         print(f"  {DIM}{result.stderr[:600]}{RESET}")
         sys.exit(1)
     info = json.loads(result.stdout)
-    return info.get("formats", []), info.get("title", "Unknown title")
+    return info.get("formats", []), info.get("title", "Unknown title"), info.get("duration")
 
 
 def filter_video_formats(formats: list[dict]) -> list[dict]:
-    """Deduplicate by resolution (keep highest bitrate), sort best → worst."""
+    """Deduplicate by resolution (prefer direct HTTP/DASH over m3u8, then highest bitrate), sort best → worst."""
     seen: dict[int, dict] = {}
     for fmt in formats:
         if fmt.get("vcodec", "none") == "none" or not fmt.get("height"):
             continue
         h = fmt["height"]
-        if h not in seen or (fmt.get("tbr") or 0) > (seen[h].get("tbr") or 0):
+        protocol = fmt.get("protocol", "")
+        is_m3u8 = "m3u8" in protocol
+
+        if h not in seen:
             seen[h] = fmt
+        else:
+            prev_fmt = seen[h]
+            prev_is_m3u8 = "m3u8" in prev_fmt.get("protocol", "")
+            # Prefer direct HTTP/DASH over m3u8 (m3u8 is much slower); if same type, compare bitrate
+            if prev_is_m3u8 and not is_m3u8:
+                seen[h] = fmt
+            elif prev_is_m3u8 == is_m3u8:
+                if (fmt.get("tbr") or 0) > (prev_fmt.get("tbr") or 0):
+                    seen[h] = fmt
     return sorted(seen.values(), key=lambda f: f.get("height", 0), reverse=True)
 
 
@@ -581,6 +596,7 @@ def download_video(
     fmt: dict,
     output_dir: str,
     clip: Optional[tuple[str, str]] = None,
+    video_duration: Optional[float] = None,
 ) -> None:
     height = fmt.get("height", "?")
     fmt_id = fmt["format_id"]
@@ -592,13 +608,14 @@ def download_video(
     console.print(f"\n  [cyan]Downloading {markup_escape(label)} + best audio…[/cyan]")
     yt_args = ["-f", f"{fmt_id}+bestaudio/best", "--merge-output-format", "mp4"]
     yt_args += _base_args(url, os.path.join(output_dir, tmpl), clip)
-    _run_single(yt_args, label, output_dir, clip)
+    _run_single(yt_args, label, output_dir, clip, video_duration)
 
 
 def download_audio(
     url: str,
     output_dir: str,
     clip: Optional[tuple[str, str]] = None,
+    video_duration: Optional[float] = None,
 ) -> None:
     label = (f"audio clip ({clip[0]} → {clip[1]})" if clip
               else "best audio (MP3)")
@@ -609,7 +626,7 @@ def download_audio(
     yt_args = ["-f", "bestaudio/best", "-x",
                "--audio-format", "mp3", "--audio-quality", "0"]
     yt_args += _base_args(url, os.path.join(output_dir, tmpl), clip)
-    _run_single(yt_args, label, output_dir, clip)
+    _run_single(yt_args, label, output_dir, clip, video_duration)
 
 
 def get_display_path(path: str) -> str:
@@ -659,13 +676,14 @@ def _run_single(
     label: str,
     output_dir: str,
     clip: Optional[tuple[str, str]] = None,
+    video_duration: Optional[float] = None,
 ) -> None:
     """Run a single download with a Rich progress bar."""
     with _make_progress() as progress:
         task_id = progress.add_task(
             f"[cyan]{markup_escape(label[:40])}[/cyan]", total=100
         )
-        rc = _worker(yt_args, label[:40], progress, task_id, clip=clip)
+        rc = _worker(yt_args, label[:40], progress, task_id, clip=clip, video_duration=video_duration)
 
     if rc == 0:
         console.print(
@@ -805,26 +823,26 @@ def run_download_flow(
 ) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
-    if audio_only:
-        download_audio(url, output_dir, clip)
-        return
-
-    formats, title = fetch_formats(url)
+    formats, title, video_duration = fetch_formats(url)
     print(f"  {BOLD}Title:{RESET} {CYAN}{title}{RESET}\n")
+
+    if audio_only:
+        download_audio(url, output_dir, clip, video_duration)
+        return
 
     video_fmts = filter_video_formats(formats)
     if not video_fmts:
         print(f"{YELLOW}  No video formats found — falling back to audio-only.{RESET}")
-        download_audio(url, output_dir, clip)
+        download_audio(url, output_dir, clip, video_duration)
         return
 
     chosen = pick_video_quality(video_fmts, title)
     if chosen is _BACK:
         return
     if chosen is None:
-        download_audio(url, output_dir, clip)
+        download_audio(url, output_dir, clip, video_duration)
     else:
-        download_video(url, chosen, output_dir, clip)
+        download_video(url, chosen, output_dir, clip, video_duration)
 
 
 def main() -> None:
@@ -882,15 +900,15 @@ def main() -> None:
 
         if cli_clip:
             # Non-interactive video clip — fetch formats, pick best, download clip
-            formats, title = fetch_formats(args.url)
+            formats, title, video_duration = fetch_formats(args.url)
             print(f"  {BOLD}Title:{RESET} {CYAN}{title}{RESET}\n")
             video_fmts = filter_video_formats(formats)
             if not video_fmts:
                 print(f"{YELLOW}  No video formats — falling back to audio clip.{RESET}")
-                download_audio(args.url, args.output, cli_clip)
+                download_audio(args.url, args.output, cli_clip, video_duration)
                 return
             chosen = video_fmts[0]
-            download_video(args.url, chosen, args.output, cli_clip)
+            download_video(args.url, chosen, args.output, cli_clip, video_duration)
             return
 
     # ── Interactive menu loop ─────────────────────────────────────────────────
