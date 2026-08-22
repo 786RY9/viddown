@@ -134,7 +134,15 @@ def curses_menu(stdscr, title: str, options: list[str], subtitle: str = "") -> i
 
 
 def run_curses_menu(title: str, options: list[str], subtitle: str = "") -> int:
-    return curses.wrapper(curses_menu, title, options, subtitle)
+    result = curses.wrapper(curses_menu, title, options, subtitle)
+    # curses can leave the terminal in a broken state where backspace prints ^H
+    # instead of deleting. `stty sane` resets all line-discipline settings.
+    try:
+        subprocess.run(["stty", "sane"], check=False, capture_output=True)
+    except Exception:
+        pass
+    return result
+
 
 
 # ─── Time helpers ─────────────────────────────────────────────────────────────
