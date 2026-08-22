@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# viddown — wrapper script for the viddown Docker container
+#
+# Install globally:
+#   sudo ln -sf /home/ry/Videos/youtube/viddown/dl /usr/local/bin/viddown
+#
+# Usage (from anywhere once installed):
+#   viddown                         Open interactive menu (prompts for URL)
+#   viddown <url>                   Open interactive menu with URL pre-filled
+#   viddown <url> --audio-only      Download best audio (MP3) directly
+#   viddown <url> -o /some/dir      Save to a custom directory
+#   viddown --build                 (Re)build the Docker image
+#   viddown --rebuild               Same as --build
+#   viddown -h / --help             Show this help
+#
+# Downloaded files land in ~/Downloads/viddown/ by default.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+IMAGE_NAME="viddown"
+# Always resolve to the real script location, even when called via symlink
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Default output: ~/Downloads/viddown (created automatically)
+DEFAULT_OUTPUT="${HOME}/Downloads/viddown"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+usage() {
+  cat <<EOF
+
+  ${BOLD}viddown${RESET} — download from YouTube, Instagram, TikTok and more
+
+  Usage:
+    $(basename "$0")                         Interactive menu (prompts for URL)
+    $(basename "$0") <url>                   Interactive menu with URL pre-filled
+    $(basename "$0") <url> --audio-only      Download audio only (best MP3)
+    $(basename "$0") <url> -o <dir>          Save to a custom directory
+    $(basename "$0") --build / --rebuild     (Re)build the Docker image
+    $(basename "$0") -h / --help             Show this help
+
+  Downloaded files go to: ${DEFAULT_OUTPUT}/
+  The Docker image is built automatically on first run.
+
+EOF
+}
+
+# Minimal bold for usage() even without colour support
+BOLD=""
+RESET=""
+if [[ -t 1 ]]; then
+  BOLD="\033[1m"
+  RESET="\033[0m"
+fi
+
+build_image() {
+  echo -e "🔨  Building Docker image '${IMAGE_NAME}'…"
+  docker build -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+  echo -e "✅  Image built successfully."
+}
+
+image_exists() {
+  docker image inspect "${IMAGE_NAME}" &>/dev/null
+}
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+case "${1:-}" in
+  --build|--rebuild)
+    build_image
+    exit 0
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+URL="${1:-}"   # may be empty — the Python script will prompt for it
+[[ $# -gt 0 ]] && shift || true
+
+OUTPUT_DIR="${DEFAULT_OUTPUT}"
+EXTRA_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o|--output)
+      OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --audio-only|--update)
+      EXTRA_ARGS+=("$1")
+      shift
+      ;;
+    *)
+      EXTRA_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# ── Auto-build if image missing ───────────────────────────────────────────────
+if ! image_exists; then
+  echo -e "⚠️   Docker image '${IMAGE_NAME}' not found. Building now…"
+  build_image
+fi
+
+mkdir -p "${OUTPUT_DIR}"
+
+# ── Run container ─────────────────────────────────────────────────────────────
+# -it    interactive + TTY so the curses menu and progress bars work
+# --rm   clean up container on exit
+# -v     mount the host output dir to /downloads inside the container
+docker run \
+  -it \
+  --rm \
+  -v "${OUTPUT_DIR}:/downloads" \
+  "${IMAGE_NAME}" \
+  ${URL:+"${URL}"} \
+  -o /downloads \
+  "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"

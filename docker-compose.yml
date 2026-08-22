@@ -1,0 +1,11 @@
+# viddown — Docker Compose (optional convenience)
+# Usage: docker compose run --rm viddown <url> [--audio-only]
+
+services:
+  viddown:
+    build: .
+    image: viddown
+    volumes:
+      - ./downloads:/downloads
+    stdin_open: true   # keeps stdin open for the interactive quality picker
+    tty: true
