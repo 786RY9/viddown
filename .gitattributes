@@ -1,0 +1,6 @@
+# Keep the bash wrapper on Unix line endings so the shebang stays valid
+# on Linux/macOS/Git Bash after a Windows checkout.
+dl text eol=lf
+
+*.ps1 text eol=crlf
+*.cmd text eol=crlf

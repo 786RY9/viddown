@@ -1,0 +1,3 @@
+yt-dlp[default]
+rich>=13
+windows-curses>=2.3.0; sys_platform == "win32"

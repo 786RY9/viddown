@@ -14,17 +14,55 @@
 #   viddown --rebuild               Same as --build
 #   viddown -h / --help             Show this help
 #
-# Downloaded files land in ~/Downloads/viddown/ by default.
+# Downloaded files land in the current directory by default.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
+# Git Bash otherwise rewrites docker args like `/downloads` into
+# `C:\Program Files\Git\downloads`, which breaks volume mounts.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL='*'
+
 IMAGE_NAME="viddown"
-# Always resolve to the real script location, even when called via symlink
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Resolve the script directory without GNU `readlink -f` (macOS / Git Bash / WSL).
+_resolve_script_dir() {
+  local source="${BASH_SOURCE[0]}"
+  while [[ -L "$source" ]]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    source="$(readlink "$source")"
+    [[ "$source" != /* ]] && source="${dir}/${source}"
+  done
+  cd -P "$(dirname "$source")" && pwd
+}
+SCRIPT_DIR="$(_resolve_script_dir)"
 
 # Default output: current working directory where viddown is executed
 DEFAULT_OUTPUT="$(pwd)"
+
+# Git Bash / Cygwin: convert /c/Users/... → C:/Users/... for Docker Desktop.
+to_docker_path() {
+  local p="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$p"
+  else
+    printf '%s' "$p"
+  fi
+}
+
+# winpty is required for `docker run -it` inside Git Bash mintty; it breaks
+# non-interactive commands like `docker build` / `docker image inspect`.
+docker_run() {
+  if [[ -t 0 && -t 1 ]] \
+     && { [[ "${MSYSTEM:-}" == MINGW* ]] || [[ "${MSYSTEM:-}" == MSYS* ]]; } \
+     && command -v winpty >/dev/null 2>&1; then
+    winpty docker run "$@"
+  else
+    docker run "$@"
+  fi
+}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 usage() {
@@ -38,10 +76,16 @@ usage() {
     $(basename "$0") <url> --audio-only      Download audio only (best MP3)
     $(basename "$0") <url> -o <dir>          Save to a custom directory
     $(basename "$0") --build / --rebuild     (Re)build the Docker image
+    $(basename "$0") --install               Make 'viddown' work from any folder
+    $(basename "$0") --uninstall             Remove the global 'viddown' command
     $(basename "$0") -h / --help             Show this help
 
   Downloaded files go to: current directory (or specify with -o <dir>)
   The Docker image is built automatically on first run.
+
+  Windows:
+    Prefer PowerShell:  .\\dl.ps1   or   .\\dl
+    Git Bash / WSL:     ./dl   or   bash dl
 
 EOF
 }
@@ -56,7 +100,7 @@ fi
 
 build_image() {
   echo -e "🔨  Building Docker image '${IMAGE_NAME}'…"
-  docker build -t "${IMAGE_NAME}" "${SCRIPT_DIR}"
+  docker build -t "${IMAGE_NAME}" "$(to_docker_path "${SCRIPT_DIR}")"
   echo -e "✅  Image built successfully."
 }
 
@@ -64,10 +108,47 @@ image_exists() {
   docker image inspect "${IMAGE_NAME}" &>/dev/null
 }
 
+install_global() {
+  local dest="${HOME}/.local/bin"
+  mkdir -p "${dest}"
+  chmod +x "${SCRIPT_DIR}/dl" 2>/dev/null || true
+  ln -sfn "${SCRIPT_DIR}/dl" "${dest}/viddown"
+  echo
+  echo "  Installed global command: ${dest}/viddown"
+  echo
+  if [[ ":${PATH}:" != *":${dest}:"* ]]; then
+    echo "  Add this to ~/.bashrc or ~/.zshrc, then open a new terminal:"
+    echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo
+  else
+    echo "  From any folder:"
+    echo "    viddown \"https://www.youtube.com/watch?v=VIDEO_ID\""
+    echo
+  fi
+}
+
+uninstall_global() {
+  local dest="${HOME}/.local/bin/viddown"
+  if [[ -L "${dest}" || -f "${dest}" ]]; then
+    rm -f "${dest}"
+    echo "  Removed ${dest}"
+  else
+    echo "  No global viddown command found at ${dest}"
+  fi
+}
+
 # ── Argument parsing ──────────────────────────────────────────────────────────
 case "${1:-}" in
   --build|--rebuild)
     build_image
+    exit 0
+    ;;
+  --install)
+    install_global
+    exit 0
+    ;;
+  --uninstall)
+    uninstall_global
     exit 0
     ;;
   -h|--help)
@@ -106,15 +187,22 @@ if ! image_exists; then
 fi
 
 mkdir -p "${OUTPUT_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
+HOST_MOUNT="$(to_docker_path "${OUTPUT_DIR}")"
+
+TTY_FLAGS=()
+if [[ -t 0 && -t 1 ]]; then
+  TTY_FLAGS=(-it)
+fi
 
 # ── Run container ─────────────────────────────────────────────────────────────
 # -it    interactive + TTY so the curses menu and progress bars work
 # --rm   clean up container on exit
 # -v     mount the host output dir to /downloads inside the container
-docker run \
-  -it \
+docker_run \
+  ${TTY_FLAGS[@]+"${TTY_FLAGS[@]}"} \
   --rm \
-  -v "${OUTPUT_DIR}:/downloads" \
+  -v "${HOST_MOUNT}:/downloads" \
   "${IMAGE_NAME}" \
   ${URL:+"${URL}"} \
   -o /downloads \

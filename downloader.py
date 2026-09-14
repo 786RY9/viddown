@@ -11,10 +11,23 @@ import sys
 import os
 import re
 import json
-import curses
+import locale
+import shutil
 import subprocess
 import threading
 from typing import Optional, Union
+
+try:
+    import curses
+except ImportError:
+    if sys.platform == "win32":
+        sys.stderr.write(
+            "curses is not available on this Python install.\n"
+            "Install it with:\n"
+            "  pip install windows-curses\n"
+        )
+        sys.exit(1)
+    raise
 
 from rich.console import Console
 from rich.markup import escape as markup_escape
@@ -46,6 +59,53 @@ YELLOW  = "\033[93m"
 RED     = "\033[91m"
 DIM     = "\033[2m"
 MAGENTA = "\033[95m"
+
+
+def _enable_windows_console() -> None:
+    """UTF-8 + VT sequences so the banner and curses menu render on Windows."""
+    if sys.platform != "win32":
+        return
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        for std_handle in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+            handle = kernel32.GetStdHandle(std_handle)
+            mode = ctypes.c_uint32()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                kernel32.SetConsoleMode(handle, mode.value | 0x0004)
+    except Exception:
+        pass
+
+
+try:
+    locale.setlocale(locale.LC_ALL, "")
+except Exception:
+    pass
+_enable_windows_console()
+
+
+# ─── Banner ───────────────────────────────────────────────────────────────────
+def _curses_addstr(stdscr, y: int, x: int, text: str, max_len: int) -> None:
+    """addstr that will not crash on tiny windows or missing Unicode glyphs."""
+    if y < 0 or x < 0 or max_len <= 0:
+        return
+    snippet = text[:max_len]
+    try:
+        stdscr.addstr(y, x, snippet)
+        return
+    except curses.error:
+        pass
+    try:
+        fallback = snippet.encode("ascii", "replace").decode("ascii")
+        stdscr.addstr(y, x, fallback[:max_len])
+    except curses.error:
+        pass
 
 
 # ─── Banner ───────────────────────────────────────────────────────────────────
@@ -93,14 +153,14 @@ def curses_menu(stdscr, title: str, options: list[str], subtitle: str = "") -> i
         # Title
         pad = max((width - len(title)) // 2, 0)
         stdscr.attron(curses.color_pair(2) | curses.A_BOLD)
-        stdscr.addstr(1, pad, title[:width - 1])
+        _curses_addstr(stdscr, 1, pad, title, width - 1)
         stdscr.attroff(curses.color_pair(2) | curses.A_BOLD)
 
         # Subtitle
         if subtitle:
             sub_pad = max((width - len(subtitle)) // 2, 0)
             stdscr.attron(curses.color_pair(4))
-            stdscr.addstr(2, sub_pad, subtitle[:width - 1])
+            _curses_addstr(stdscr, 2, sub_pad, subtitle, width - 1)
             stdscr.attroff(curses.color_pair(4))
 
         # Menu items
@@ -108,22 +168,26 @@ def curses_menu(stdscr, title: str, options: list[str], subtitle: str = "") -> i
             row = 4 + idx
             if row >= height - 2:
                 break
-            prefix = "  ❯  " if idx == current else "     "
+            prefix = "  >  " if (idx == current and sys.platform == "win32") else (
+                "  ❯  " if idx == current else "     "
+            )
             label  = f"{prefix}{opt}"
             if idx == current:
                 stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
-                stdscr.addstr(row, 2, label[:width - 3])
+                _curses_addstr(stdscr, row, 2, label, width - 3)
                 stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
             else:
                 stdscr.attron(curses.color_pair(3))
-                stdscr.addstr(row, 2, label[:width - 3])
+                _curses_addstr(stdscr, row, 2, label, width - 3)
                 stdscr.attroff(curses.color_pair(3))
 
         # Footer hint
-        hint = "↑ ↓  Navigate    Enter  Select    Q  Quit"
+        hint = "Up/Down  Navigate    Enter  Select    Q  Quit" if sys.platform == "win32" \
+            else "↑ ↓  Navigate    Enter  Select    Q  Quit"
         hint_pad = max((width - len(hint)) // 2, 0)
         stdscr.attron(curses.color_pair(4))
-        stdscr.addstr(height - 2, hint_pad, hint[:width - 1])
+        if height >= 3:
+            _curses_addstr(stdscr, height - 2, hint_pad, hint, width - 1)
         stdscr.attroff(curses.color_pair(4))
 
         stdscr.refresh()
@@ -143,10 +207,11 @@ def run_curses_menu(title: str, options: list[str], subtitle: str = "") -> int:
     result = curses.wrapper(curses_menu, title, options, subtitle)
     # curses can leave the terminal in a broken state where backspace prints ^H
     # instead of deleting. `stty sane` resets all line-discipline settings.
-    try:
-        subprocess.run(["stty", "sane"], check=False, capture_output=True)
-    except Exception:
-        pass
+    if sys.platform != "win32":
+        try:
+            subprocess.run(["stty", "sane"], check=False, capture_output=True)
+        except Exception:
+            pass
     return result
 
 
@@ -306,7 +371,7 @@ def _worker(
     Returns the yt-dlp exit code.
     """
     proc = subprocess.Popen(
-        [YTDLP_BIN] + yt_args,
+        YTDLP_CMD + yt_args,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=False,
@@ -447,21 +512,20 @@ RESUME_FLAGS = [
     "--retry-sleep", "5",              # wait 5 s between retries
 ]
 
-# Resolve the yt-dlp binary: prefer the active venv, then fall back to PATH.
-def _ytdlp_bin() -> str:
-    # Check the venv that ships with this install first
-    venv_bin = os.path.join(sys.prefix, "bin", "yt-dlp")
+# Resolve yt-dlp: venv binary, PATH, then `python -m yt_dlp`.
+def _ytdlp_cmd() -> list[str]:
+    if os.name == "nt":
+        venv_bin = os.path.join(sys.prefix, "Scripts", "yt-dlp.exe")
+    else:
+        venv_bin = os.path.join(sys.prefix, "bin", "yt-dlp")
     if os.path.isfile(venv_bin):
-        return venv_bin
-    # Fall back to whatever is on PATH
-    import shutil
+        return [venv_bin]
     found = shutil.which("yt-dlp")
     if found:
-        return found
-    # Last resort: let subprocess raise a clear error
-    return "yt-dlp"
+        return [found]
+    return [sys.executable, "-m", "yt_dlp"]
 
-YTDLP_BIN = _ytdlp_bin()
+YTDLP_CMD = _ytdlp_cmd()
 
 
 def _base_args(
@@ -488,17 +552,13 @@ def _base_args(
 
 # ─── yt-dlp helpers ───────────────────────────────────────────────────────────
 def run_ytdlp(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run([YTDLP_BIN] + args, capture_output=True, text=True)
+    return subprocess.run(YTDLP_CMD + args, capture_output=True, text=True)
 
 
 def update_ytdlp() -> None:
     print(f"\n{CYAN}  Updating yt-dlp…{RESET}\n")
-    # Upgrade inside the same pip that manages the current env
-    pip_bin = os.path.join(sys.prefix, "bin", "pip")
-    if not os.path.isfile(pip_bin):
-        pip_bin = "pip"
     proc = subprocess.Popen(
-        [pip_bin, "install", "--upgrade", "yt-dlp"],
+        [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1,
     )
@@ -629,6 +689,13 @@ def download_audio(
     _run_single(yt_args, label, output_dir, clip, video_duration)
 
 
+def _default_output_dir() -> str:
+    """Docker images mount a host folder at /downloads; otherwise use cwd."""
+    if os.path.isdir("/downloads"):
+        return "/downloads"
+    return os.getcwd()
+
+
 def get_display_path(path: str) -> str:
     """Format path for clean CLI output."""
     if path == "/downloads":
@@ -647,7 +714,7 @@ def prompt_change_output_dir(current_dir: str) -> str:
     display_curr = get_display_path(current_dir)
     print(f"\n  {BOLD}{CYAN}Set Download Save Folder{RESET}")
     print(f"  {DIM}Current folder:{RESET} {YELLOW}{display_curr}{RESET}")
-    print(f"  {DIM}Enter a subfolder name or full path (e.g. clips or /home/ry/Videos):{RESET}")
+    print(f"  {DIM}Enter a subfolder name or full path (e.g. clips or ~/Videos):{RESET}")
     try:
         raw = input("  > ").strip()
     except (EOFError, KeyboardInterrupt):
@@ -657,10 +724,11 @@ def prompt_change_output_dir(current_dir: str) -> str:
         print(f"  {DIM}Keeping current folder: {display_curr}{RESET}\n")
         return current_dir
 
-    if current_dir == "/downloads" and not raw.startswith("/"):
-        new_path = os.path.normpath(os.path.join("/downloads", raw))
+    raw_expanded = os.path.expanduser(raw)
+    if os.path.isabs(raw_expanded):
+        new_path = os.path.normpath(raw_expanded)
     else:
-        new_path = os.path.expanduser(raw)
+        new_path = os.path.normpath(os.path.join(current_dir, raw_expanded))
 
     try:
         os.makedirs(new_path, exist_ok=True)
@@ -853,8 +921,8 @@ def main() -> None:
     )
     parser.add_argument("url", nargs="?",
                         help="Video URL (optional — prompted if omitted)")
-    parser.add_argument("-o", "--output", default="/downloads",
-                        help="Output directory (default: /downloads)")
+    parser.add_argument("-o", "--output", default=_default_output_dir(),
+                        help="Output directory (default: /downloads in Docker, current directory otherwise)")
     parser.add_argument("--audio-only", action="store_true",
                         help="Non-interactive: download audio only")
     parser.add_argument("--update", action="store_true",

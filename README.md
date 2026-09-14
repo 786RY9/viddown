@@ -1,343 +1,421 @@
-# 📥 viddown — Video Downloader by RY9
+# viddown — Video Downloader by RY9
 
-**Download videos from YouTube, Instagram, TikTok — and hundreds of other sites.**  
-Works on Windows, Mac, and Linux. No technical experience needed.
+Download videos from **YouTube, Instagram, TikTok**, and 800+ other sites.
 
----
+You run it in a terminal (a text window), paste a link, pick what you want, and the file lands on your computer.
 
-## 🙋 What does this tool do?
-
-`viddown` is a tool you run in a **terminal** (a text window on your computer).  
-You give it a video link, choose what you want, and it downloads the file for you.
-
-You can:
-- 📥 Download the **full video** in the quality you choose (1080p, 720p, 480p, etc.)
-- ✂️ Download only a **short clip** from a video (e.g. from 5:23 to 6:44)
-- 🎵 Download just the **audio** as an MP3 (great for music or podcasts)
-- 🎙️ Download an **audio clip** from a specific part of a video
-- 📦 Download **multiple videos at the same time** (parallel — they all download together)
-- 🎶 Download **multiple videos as MP3 audio** at the same time
-- ⏸️ **Pause or lose internet mid-download?** No problem — it resumes automatically from where it left off, no re-downloading needed
-- 🔄 **Update** the downloader from inside the tool to support the latest sites
+Works on **Windows, Mac, and Linux**. You do **not** need to know how to code.
 
 ---
 
-## ✅ What do you need to install?
+## What can it do?
 
-> **Just one thing: Docker.**
+- Download a **full video** and pick the quality (1080p, 720p, …)
+- Download only a **clip** (for example 5:23 to 6:44)
+- Download **audio only** as MP3
+- Download an **audio clip** as MP3
+- Download **several videos at once**
+- **Resume** if the internet drops — run the same download again
+- **Update** itself when sites change
 
-That's it. You do **not** need to install Python, ffmpeg, yt-dlp, or anything else.  
-Docker handles everything automatically behind the scenes.
+---
 
-### 🐳 How to install Docker
+## What you need
 
-Click the link for your operating system:
+**Only Docker.** Python, ffmpeg, and yt-dlp are included inside Docker.
 
-| Your computer | Download link |
+| Computer | Download |
 |---|---|
-| 🪟 **Windows** | [Download Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) |
-| 🍎 **Mac** | [Download Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/) |
-| 🐧 **Linux** | [Follow these steps](https://docs.docker.com/engine/install/) (pick your distro) |
+| Windows | [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) |
+| Mac | [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/) |
+| Linux | [Docker Engine install guide](https://docs.docker.com/engine/install/) |
 
-After installing Docker Desktop, **open it** and leave it running in the background.  
-You don't need to do anything with it — just keep it open.
+**Windows notes:**
+
+1. Install Docker Desktop and **restart the computer** if it asks.
+2. If it asks to install **WSL**, say yes.
+3. After install, **open Docker Desktop** and leave it running. Wait until it says it is running (whale icon in the taskbar).
+4. You never need to click around inside Docker. Just keep it open.
+
+If Docker is not running, viddown cannot start.
 
 ---
 
-## 📦 How to set up viddown (do this once)
+## 1. Download the zip
 
-### Step 1 — Download viddown
+1. Open the project page on GitHub.
+2. Click the green **Code** button.
+3. Click **Download ZIP**.
+4. Save the zip somewhere easy, like your **Desktop** or **Downloads** folder.
 
-Download the `viddown` folder from this page and save it somewhere easy to find,  
-for example your **Desktop** or your **Documents** folder.
+---
 
-### Step 2 — Open a terminal
+## 2. Unzip the folder
 
-**On Windows:**
-1. Press the **Start** button
-2. Search for **"Command Prompt"** or **"PowerShell"**
-3. Click to open it
+**Windows**
 
-**On Mac:**
-1. Press **⌘ Command + Space**
-2. Type **"Terminal"**
-3. Press **Enter**
+1. Right-click the zip file.
+2. Click **Extract All…**
+3. Click **Extract**.
+4. You should get a folder named `viddown` or `viddown-main`. Put it on your Desktop if you like.
 
-**On Linux:**
-Press **Ctrl + Alt + T** — that opens a terminal window.
+**Mac**
 
-### Step 3 — Go to the viddown folder
+Double-click the zip. A folder appears next to it.
 
-In the terminal, type this and press **Enter**  
-(replace the path with wherever you saved it):
+**Linux**
 
-**Windows:**
+Right-click → Extract, or:
+
+```
+unzip viddown-main.zip
+```
+
+Keep that folder. Do not delete it after setup — the global `viddown` command still points at it.
+
+---
+
+## 3. Open a terminal in that folder
+
+A terminal is a text window where you type commands, then press **Enter**.
+
+**Windows**
+
+1. Press the **Start** button.
+2. Type **PowerShell** and open **Windows PowerShell** (or **Windows Terminal**).
+3. Go into the unzipped folder. Replace `YourName` with your Windows user name:
+
+```
+cd C:\Users\YourName\Desktop\viddown-main
+```
+
+If the folder is just called `viddown`:
+
 ```
 cd C:\Users\YourName\Desktop\viddown
 ```
 
-**Mac / Linux:**
-```
-cd ~/Desktop/viddown
-```
+**Tip:** In File Explorer, click into the viddown folder, click the address bar, copy the path, then in PowerShell type `cd ` (with a space) and paste.
 
-> 💡 **Tip:** You can drag the `viddown` folder directly into the terminal window  
-> and it will type the path for you automatically.
+**Mac**
 
-### Step 4 — Build the tool (first time only, takes ~5 minutes)
+1. Press **Command + Space**, type **Terminal**, press Enter.
+2. Type:
 
 ```
-./dl --build
+cd ~/Desktop/viddown-main
 ```
 
-> ⚠️ **Windows users:** If `./dl` doesn't work, try:
-> ```
-> bash dl --build
-> ```
-> You may need [Git for Windows](https://git-scm.com/download/win) for `bash` to work.
+**Linux**
 
-You'll see text scrolling — that's normal. Wait for **"Image built successfully."**  
-This only happens **once**. Every future download starts instantly.
+Press **Ctrl + Alt + T**, then:
+
+```
+cd ~/Desktop/viddown-main
+```
+
+**Tip (all systems):** you can drag the viddown folder onto the terminal window after typing `cd ` — it often pastes the path for you.
 
 ---
 
-## ▶️ How to download a video
+## 4. First-time setup (once)
 
-### 1. Copy the video link
+This builds the tool (~5 minutes the first time) and makes the command `viddown` work from **any folder**.
 
-Go to YouTube, Instagram, or TikTok and copy the link from your browser.
+### Windows
 
-### 2. Run the tool
+Make sure Docker Desktop is running, then:
 
 ```
-./dl "PASTE-YOUR-LINK-HERE"
+.\viddown.ps1 --build
+.\viddown.ps1 --install
 ```
 
-Example:
+If PowerShell says scripts are disabled, use **Command Prompt** instead (Start → `cmd`):
+
 ```
-./dl "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+cd C:\Users\YourName\Desktop\viddown-main
+viddown --build
+viddown --install
 ```
 
-> 💡 Keep the quote marks `"` around the link.
+Wait until you see **Image built successfully.**
 
-### 3. Use the menu
+Then **close the terminal completely and open a new one.**  
+The `viddown` command only appears in new windows after `--install`.
 
-An interactive menu appears. Use the **arrow keys** to navigate and **Enter** to select:
+### Mac / Linux
+
+```
+chmod +x dl
+./dl --build
+./dl --install
+```
+
+If `viddown` is not found after install, add this line to `~/.bashrc` or `~/.zshrc`, then open a new terminal:
+
+```
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+---
+
+## 5. Download a video (everyday use)
+
+1. Copy a real video link from your browser (YouTube, Instagram, TikTok, …).
+2. Open a **new** terminal. You can be in any folder — Downloads, Desktop, a project folder, etc.
+3. Run (keep the quote marks):
+
+```
+viddown "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+
+4. Use **arrow keys** to move, **Enter** to select, **Q** to quit.
+
+The file is saved in **the folder you are in right now**.  
+Example: if your terminal shows `C:\Users\You\Desktop`, the video appears on the Desktop.
+
+### Menu
 
 ```
   viddown  —  What would you like to do?
 
-  ❯  📥  Download full video        (pick quality)
-     ✂️   Download a clip            (set time range)
-     🎵  Download audio only        (full · best MP3)
-     🎙️   Download audio clip        (set time range · MP3)
-     📦  Download multiple videos   (parallel · auto best quality)
-     🎶  Download multiple as audio (parallel · MP3)
-     🔄  Update yt-dlp to latest version
-     ❌  Quit
+  >  Download full video        (pick quality)
+     Download a clip            (set time range)
+     Download audio only        (full · best MP3)
+     Download audio clip        (set time range · MP3)
+     Download multiple videos   (parallel · auto best quality)
+     Download multiple as audio (parallel · MP3)
+     Change save folder         (specify download location)
+     Update yt-dlp to latest version
+     Quit
 ```
 
-### 4. Pick your quality (for single video downloads)
+### Quality picker
 
-```
-  1    1080p   60fps  [mp4]  ~120 MB
-  2    720p    30fps  [mp4]  ~60 MB
-  3    480p    30fps  [mp4]  ~30 MB
-  4    360p    30fps  [mp4]  ~15 MB
-  A    Audio only (best quality, MP3)
-```
+For a single video you can choose the resolution. Rough guide:
 
-> 💡 **Not sure which to pick?**
-> - **1080p** = sharpest picture, largest file
-> - **720p** = great quality, half the size (a good choice for most)
-> - **480p / 360p** = smaller files, lower quality
-> - **Audio only** = sound only, no video (smallest file)
-
-### 5. Watch the progress bar
-
-A clean progress bar shows how much is done:
-
-```
-  ⠸  Rick Astley - Never Gonna…  ████████████░░░░░░░  62.4%  3.1 MB/s  0:00:12
-```
-
-When it says **✓ Done!** your file is ready.
+- **1080p** — sharpest, largest file
+- **720p** — great for most people
+- **480p / 360p** — smaller file, lower quality
+- **Audio only** — MP3, no picture
 
 ---
 
-## 📂 Where do my files go?
+## Where do the files go?
 
-All downloads are saved to:
-```
-~/Downloads/viddown/
-```
-That's the **viddown** folder inside your **Downloads** folder.
+**Default:** the current folder (wherever your terminal is when you run `viddown`).
 
-To save somewhere else, add `-o` followed by the path:
+Save somewhere else with `-o`:
+
+**Windows**
+
 ```
-./dl "https://..." -o ~/Desktop/my-videos
+viddown "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -o "D:\Videos"
 ```
+
+**Mac / Linux**
+
+```
+viddown "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -o ~/Desktop/my-videos
+```
+
+You can also pick **Change save folder** in the menu.
 
 ---
 
-## ✂️ Download only part of a video (a clip)
+## Clips (only part of a video)
 
-1. Run the tool: `./dl "https://..."`
-2. Select **"Download a clip"** or **"Download audio clip"**
-3. Enter the start and end times when asked
+1. Run `viddown "YOUR-LINK"`
+2. Choose **Download a clip** or **Download audio clip**
+3. Type a start time and an end time
 
-**Time formats you can use:**
-
-| What you type | What it means |
+| You type | Meaning |
 |---|---|
 | `5:23` | 5 minutes 23 seconds |
 | `1:05:30` | 1 hour, 5 minutes, 30 seconds |
 | `5m23s` | 5 minutes and 23 seconds |
-| `323` | 323 seconds (= 5 min 23 sec) |
+| `323` | 323 seconds |
 
-**Example — download 1 minute 21 seconds of a video:**
-```
-  Start time: 5:23
-  End   time: 6:44
-```
+Example: start `5:23`, end `6:44`.
 
----
-
-## 📦 Download multiple videos at the same time (parallel)
-
-You can download several videos simultaneously — they all run in parallel and each  
-shows its own progress bar.
-
-1. Run: `./dl`
-2. Select **"Download multiple videos"** or **"Download multiple as audio"**
-3. Paste URLs one by one — press **Enter** after each one
-4. When finished, press **Enter** on a blank line to start all downloads
+Without the menu:
 
 ```
-  Enter video URLs
-  One URL per line. Press Enter on a blank line when done.
-
-  URL #1: https://www.youtube.com/watch?v=...
-  URL #2: https://www.tiktok.com/@user/video/...
-  URL #3: https://www.instagram.com/reel/...
-  URL #4: [blank — press Enter to start]
-```
-
-All downloads then run **at the same time**, each with its own progress bar:
-
-```
-  ⠸  #1 youtube.com/watch?v=…    ████████░░░░░░░  54.2%  5.1 MB/s  0:00:08
-  ⠼  #2 tiktok.com/@user/…       ██████████████░  88.7%  2.3 MB/s  0:00:02
-  ⠋  #3 instagram.com/reel/…     ██░░░░░░░░░░░░░  14.1%  4.8 MB/s  0:00:21
-```
-
-> ℹ️ Parallel downloads use the best available quality automatically.  
-> For custom quality per video, download them one at a time.
-
----
-
-## ⏸️ Resuming downloads (internet dropped or download was paused)
-
-**You never need to start over.** viddown automatically:
-
-- **Retries failed fragments** — if a small piece of the file fails to download, it tries again immediately
-- **Resumes from where it stopped** — if you close the tool or lose internet, just run the same download again and it picks up exactly where it left off, not re-downloading what it already has
-- **Waits and retries** — if your internet is unstable, it retries up to 10 times with a 5-second wait between attempts
-
-Simply re-run the exact same command and it will continue:
-```
-./dl "https://www.youtube.com/watch?v=..."
-```
-Pick the same quality as before and it resumes. ✅
-
----
-
-## 🔄 Update the downloader
-
-Sites change frequently. If something stops working:
-
-1. Open the tool: `./dl "https://any-link"`
-2. Select **"Update yt-dlp"**
-3. Wait for it to finish, then try again
-
-Or from the command line:
-```
-viddown --update
+viddown "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --start 5:23 --end 6:44
 ```
 
 ---
 
-## 🖥️ Make `viddown` work from anywhere (Linux/Mac only)
+## Several videos at once
 
-So you can type `viddown` from any folder without navigating to the viddown directory:
+1. Run `viddown` (no link)
+2. Choose **Download multiple videos** or **Download multiple as audio**
+3. Paste one URL, press Enter, repeat
+4. Press Enter on an empty line to start
 
-```bash
-chmod +x ~/Desktop/viddown/dl
-mkdir -p ~/.local/bin
-ln -sf ~/Desktop/viddown/dl ~/.local/bin/viddown
+They download together. Quality is auto “best”. For a specific quality, download one at a time.
+
+---
+
+## Useful commands
+
+After `--install`, these work from **any folder**. Always put links in `"quotes"`.
+
 ```
+viddown
+```
+Open the menu, then paste a URL when asked.
 
-Then from any terminal:
 ```
 viddown "https://..."
 ```
+Open the menu with that URL already filled in.
+
+```
+viddown "https://..." --audio-only
+```
+Download the best MP3, no menu.
+
+```
+viddown "https://..." --start 5:23 --end 6:44
+```
+Download that clip as video, no menu.
+
+```
+viddown "https://..." -o "C:\Users\YourName\Videos"
+```
+Save into a specific folder (Windows example).
+
+```
+viddown --update
+```
+Update the downloader when a site stops working. Same as **Update yt-dlp** in the menu.
+
+```
+viddown --build
+```
+Rebuild the Docker image (first time, or after you change the code).
+
+```
+viddown --help
+```
+Show help.
+
+```
+viddown --install
+```
+Make `viddown` work from any folder (run this from the unzipped project folder).
+
+```
+viddown --uninstall
+```
+Remove the global command. The unzipped folder is not deleted.
 
 ---
 
-## ⌨️ Quick command reference
+## If the internet drops
 
-```bash
-viddown                           # Open interactive menu (asks for URL)
-viddown "https://..."             # Open menu with URL ready
-viddown "https://..." --audio-only  # Download audio only (no menu)
-viddown "https://..." --start 5:23 --end 6:44  # Download a clip (no menu)
-viddown --build                   # Build or rebuild the Docker image
-viddown --update                  # Update yt-dlp to latest version
+You do not need to start over.
+
+- Failed pieces are retried automatically
+- If you close the window or lose Wi‑Fi, run the **same command** again and pick the **same quality**
+- It continues from where it stopped (up to 10 retries, 5 seconds apart)
+
+---
+
+## If a download fails
+
+1. Make sure Docker Desktop is still running.
+2. Run `viddown --update` and try again.
+3. Some videos cannot be downloaded: private, age-restricted, paid, or blocked in your country.
+
+---
+
+## Uninstall
+
+Remove the global command:
+
+```
+viddown --uninstall
 ```
 
----
+Optional extras:
 
-## ❓ Frequently asked questions
-
-**Q: The tool says "Docker image not found".**  
-A: Run `./dl --build` to build it. This only needs to happen once.
-
-**Q: The download failed or showed an error.**  
-A: Select **"Update yt-dlp"** from the menu and try again. Some videos may be private,  
-age-restricted, or region-locked — those cannot be downloaded.
-
-**Q: Where is Docker? I don't see it.**  
-A: Docker runs silently in the background. As long as Docker Desktop shows ✅ in your  
-taskbar / menu bar, it's running.
-
-**Q: I lost internet halfway through a large download. Do I need to start over?**  
-A: No! Just run the same command again with the same quality. It will resume automatically.
-
-**Q: Parallel downloads — how many videos can I download at once?**  
-A: There's no hard limit, but your internet connection and computer speed determine what's  
-practical. 3–5 videos at once is usually fine.
-
-**Q: Can I download a whole YouTube playlist?**  
-A: Not currently — this tool downloads one (or a few selected) videos at a time.
-
-**Q: Something went wrong and I can't figure it out.**  
-A: Email **rashidyaseen5484@gmail.com** with a description of what happened and  
-copy-paste the error message. I'll help you out personally.
+- Delete the unzipped `viddown` folder
+- In Docker Desktop, delete the image named `viddown` if you want it gone completely
 
 ---
 
-## 🌍 Supported sites
+## Common problems
 
-viddown supports **800+ websites** including:
+**`viddown` is not recognized**  
+You skipped `--install`, or you did not open a **new** terminal after install. From the unzipped folder run `.\viddown.ps1 --install` (Windows) or `./dl --install` (Mac/Linux), then open a new window.
+
+**`.\viddown.ps1` is blocked on Windows**  
+Use Command Prompt and `viddown --install` from the project folder, or run this once in PowerShell:
+
+```
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+**Docker image not found**  
+Run `viddown --build` once. Docker Desktop must be running.
+
+**I don’t see Docker**  
+Look for the whale icon in the Windows taskbar or the Mac menu bar. Open **Docker Desktop** and wait until it is ready.
+
+**Nothing happens / it asks for clip times on a fake link**  
+Use a real URL from the browser. Do not use placeholders like `https://www.youtube.com/watch?v=...`  
+Paste **one command at a time**.
+
+**Where is my file?**  
+In the folder your terminal was in. On Windows, `cd` to Desktop first if you want it on the Desktop:
+
+```
+cd $env:USERPROFILE\Desktop
+viddown "https://..."
+```
+
+**PowerShell shows `>>` and waits**  
+A quote was left open. Press **Ctrl+C** and type the command again with matching `"quotes"`.
+
+**Can I download a whole YouTube playlist?**  
+Not yet. One video, or a few URLs in parallel.
+
+**I moved / renamed the viddown folder after --install**  
+The global command still points at the old path. Run `--uninstall`, then `--install` again from the new folder.
+
+---
+
+## Optional: run without Docker
+
+Only if you already use Python. Most people can ignore this.
+
+You need **Python 3.10+**, **ffmpeg** on PATH, then:
+
+```
+pip install -r requirements.txt
+python downloader.py
+```
+
+On Windows, that install includes `windows-curses` so the arrow-key menu works.  
+Get ffmpeg from [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
+
+---
+
+## Supported sites
 
 YouTube · Instagram · TikTok · Twitter / X · Reddit · Facebook · Vimeo · Twitch · and [many more](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)
 
 ---
 
-## 🤝 Get in touch
+## Help
 
-I built this because I wanted something simple that actually works for everyone.
-If you run into a problem, have a suggestion, or just want to say hi —
-drop me an email at **rashidyaseen5484@gmail.com**.
+Something broke? Email **rashidyaseen5484@gmail.com** with:
 
-Made with ❤️ by **RY9**
+- Your operating system (Windows / Mac / Linux)
+- The exact command you ran
+- Copy-paste of the error
+
+Made with care by **RY9**
