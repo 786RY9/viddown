@@ -1,0 +1,42 @@
+# Caddy: automatic Let's Encrypt HTTPS for the DuckDNS name, reverse proxy to viddown.
+# Don't put Cloudflare's free proxy in front: its terms forbid serving large video.
+# VIDDOWN_DOMAIN and ACME_EMAIL come from /etc/viddown/caddy.env (systemd drop-in).
+{
+	email {$ACME_EMAIL}
+	servers {
+		timeouts {
+			read_body 30s
+			read_header 10s
+			idle 2m
+			# no write timeout: streams can legitimately run for hours
+		}
+	}
+}
+
+{$VIDDOWN_DOMAIN} {
+	# No `log` directive on purpose: Caddy then writes no access log, so client
+	# IPs are never stored on disk.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	@json path /v1/manifest /v1/stats /v1/probe
+	encode @json zstd gzip
+
+	@app path /healthz /v1/*
+	handle @app {
+		reverse_proxy 127.0.0.1:8000 {
+			# Stream bytes as soon as ffmpeg produces them (no proxy buffering).
+			flush_interval -1
+			# Retry briefly while the service restarts after an update.
+			lb_try_duration 10s
+		}
+	}
+
+	handle {
+		respond "viddown API" 404
+	}
+}

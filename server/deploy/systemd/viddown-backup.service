@@ -1,0 +1,13 @@
+[Unit]
+Description=Back up the viddown SQLite database to OCI Object Storage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/viddown/current/app/deploy/backup.sh
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ReadOnlyPaths=/var/lib/viddown

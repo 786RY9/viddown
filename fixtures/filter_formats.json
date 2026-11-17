@@ -1,0 +1,46 @@
+{
+  "description": "filter_video_formats / filterVideoFormats vectors. expected lists format_id in output order.",
+  "cases": [
+    {
+      "name": "drops audio-only and height-less formats, sorts best first",
+      "formats": [
+        { "format_id": "a1", "vcodec": "none", "acodec": "opus", "tbr": 160 },
+        { "format_id": "v360", "vcodec": "avc1", "height": 360, "protocol": "https", "tbr": 500 },
+        { "format_id": "v1080", "vcodec": "vp9", "height": 1080, "protocol": "https", "tbr": 3000 },
+        { "format_id": "noheight", "vcodec": "avc1", "protocol": "https" },
+        { "format_id": "v720", "vcodec": "avc1", "height": 720, "protocol": "https", "tbr": 1500 }
+      ],
+      "expected": ["v1080", "v720", "v360"]
+    },
+    {
+      "name": "prefers direct over m3u8 at the same height regardless of order",
+      "formats": [
+        { "format_id": "hls720", "vcodec": "avc1", "height": 720, "protocol": "m3u8_native", "tbr": 9000 },
+        { "format_id": "dash720", "vcodec": "avc1", "height": 720, "protocol": "https", "tbr": 1000 },
+        { "format_id": "dash480", "vcodec": "avc1", "height": 480, "protocol": "https", "tbr": 800 },
+        { "format_id": "hls480", "vcodec": "avc1", "height": 480, "protocol": "m3u8", "tbr": 5000 }
+      ],
+      "expected": ["dash720", "dash480"]
+    },
+    {
+      "name": "same protocol class keeps higher bitrate; missing tbr counts as 0",
+      "formats": [
+        { "format_id": "lo", "vcodec": "avc1", "height": 1080, "protocol": "https", "tbr": 2000 },
+        { "format_id": "hi", "vcodec": "vp9", "height": 1080, "protocol": "https", "tbr": 4000 },
+        { "format_id": "notbr", "vcodec": "av01", "height": 1080, "protocol": "https" },
+        { "format_id": "hls_lo", "vcodec": "avc1", "height": 240, "protocol": "m3u8", "tbr": 100 },
+        { "format_id": "hls_hi", "vcodec": "avc1", "height": 240, "protocol": "m3u8", "tbr": 300 }
+      ],
+      "expected": ["hi", "hls_hi"]
+    },
+    {
+      "name": "missing vcodec is treated as no video; missing protocol is direct",
+      "formats": [
+        { "format_id": "novcodec", "height": 720 },
+        { "format_id": "noproto", "vcodec": "avc1", "height": 720, "tbr": 10 }
+      ],
+      "expected": ["noproto"]
+    },
+    { "name": "empty input", "formats": [], "expected": [] }
+  ]
+}

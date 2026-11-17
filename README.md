@@ -59,6 +59,8 @@ If Docker is not running, viddown cannot start.
 3. Click **Extract**.
 4. You should get a folder named `viddown` or `viddown-main`. Put it on your Desktop if you like.
 
+The command-line tool lives in the **`cli`** folder inside it.
+
 **Mac**
 
 Double-click the zip. A folder appears next to it.
@@ -86,16 +88,16 @@ A terminal is a text window where you type commands, then press **Enter**.
 3. Go into the unzipped folder. Replace `YourName` with your Windows user name:
 
 ```
-cd C:\Users\YourName\Desktop\viddown-main
+cd C:\Users\YourName\Desktop\viddown-main\cli
 ```
 
 If the folder is just called `viddown`:
 
 ```
-cd C:\Users\YourName\Desktop\viddown
+cd C:\Users\YourName\Desktop\viddown\cli
 ```
 
-**Tip:** In File Explorer, click into the viddown folder, click the address bar, copy the path, then in PowerShell type `cd ` (with a space) and paste.
+**Tip:** In File Explorer, click into the viddown `cli` folder, click the address bar, copy the path, then in PowerShell type `cd ` (with a space) and paste.
 
 **Mac**
 
@@ -103,7 +105,7 @@ cd C:\Users\YourName\Desktop\viddown
 2. Type:
 
 ```
-cd ~/Desktop/viddown-main
+cd ~/Desktop/viddown-main/cli
 ```
 
 **Linux**
@@ -111,10 +113,10 @@ cd ~/Desktop/viddown-main
 Press **Ctrl + Alt + T**, then:
 
 ```
-cd ~/Desktop/viddown-main
+cd ~/Desktop/viddown-main/cli
 ```
 
-**Tip (all systems):** you can drag the viddown folder onto the terminal window after typing `cd ` — it often pastes the path for you.
+**Tip (all systems):** you can drag the viddown `cli` folder onto the terminal window after typing `cd ` — it often pastes the path for you.
 
 ---
 
@@ -134,7 +136,7 @@ Make sure Docker Desktop is running, then:
 If PowerShell says scripts are disabled, use **Command Prompt** instead (Start → `cmd`):
 
 ```
-cd C:\Users\YourName\Desktop\viddown-main
+cd C:\Users\YourName\Desktop\viddown-main\cli
 viddown --build
 viddown --install
 ```
@@ -305,7 +307,7 @@ Show help.
 ```
 viddown --install
 ```
-Make `viddown` work from any folder (run this from the unzipped project folder).
+Make `viddown` work from any folder (run this from the unzipped `cli` folder).
 
 ```
 viddown --uninstall
@@ -350,17 +352,17 @@ Optional extras:
 ## Common problems
 
 **`viddown` is not recognized**  
-You skipped `--install`, or you did not open a **new** terminal after install. From the unzipped folder run `.\viddown.ps1 --install` (Windows) or `./dl --install` (Mac/Linux), then open a new window.
+You skipped `--install`, or you did not open a **new** terminal after install. From the unzipped `cli` folder run `.\viddown.ps1 --install` (Windows) or `./dl --install` (Mac/Linux), then open a new window.
 
 **`.\viddown.ps1` is blocked on Windows**  
-Use Command Prompt and `viddown --install` from the project folder, or run this once in PowerShell:
+Use Command Prompt and `viddown --install` from the `cli` folder, or run this once in PowerShell:
 
 ```
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 **Docker image not found**  
-Run `viddown --build` once. Docker Desktop must be running.
+Run `viddown --build` once (from the `cli` folder). Docker Desktop must be running.
 
 **I don’t see Docker**  
 Look for the whale icon in the Windows taskbar or the Mac menu bar. Open **Docker Desktop** and wait until it is ready.
@@ -384,7 +386,7 @@ A quote was left open. Press **Ctrl+C** and type the command again with matching
 Not yet. One video, or a few URLs in parallel.
 
 **I moved / renamed the viddown folder after --install**  
-The global command still points at the old path. Run `--uninstall`, then `--install` again from the new folder.
+The global command still points at the old path. Run `--uninstall`, then `--install` again from the new `cli` folder. If you installed before the `cli` folder existed, do this once after updating.
 
 ---
 
@@ -395,8 +397,8 @@ Only if you already use Python. Most people can ignore this.
 You need **Python 3.10+**, **ffmpeg** on PATH, then:
 
 ```
-pip install -r requirements.txt
-python downloader.py
+pip install -r cli/requirements.txt
+python cli/downloader.py
 ```
 
 On Windows, that install includes `windows-curses` so the arrow-key menu works.  

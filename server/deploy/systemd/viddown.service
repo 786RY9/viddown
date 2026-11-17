@@ -1,0 +1,73 @@
+# viddown API server. Runs the live blue/green slot: /opt/viddown/current -> slots/{a,b}.
+[Unit]
+Description=viddown server (FastAPI)
+Documentation=https://github.com/786RY9/viddown/tree/main/server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=viddown
+Group=viddown
+EnvironmentFile=/etc/viddown/viddown.env
+Environment=PATH=/opt/viddown/current/bin:/opt/viddown/current/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VIDDOWN_FFMPEG=/opt/viddown/current/bin/ffmpeg
+Environment=XDG_CACHE_HOME=/var/cache/viddown
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=/opt/viddown/current/app
+ExecStart=/opt/viddown/current/venv/bin/python -m viddown_server
+Restart=always
+RestartSec=3
+
+# Graceful drain: SIGTERM goes to the main process only (KillMode=mixed), so running
+# yt-dlp/ffmpeg streams keep flowing while the app refuses new work. The app waits
+# up to VIDDOWN_DRAIN_TIMEOUT_S (300 s); after TimeoutStopSec everything is SIGKILLed.
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=330
+
+# tmpfs/state dirs managed by systemd (the app reads RUNTIME_DIRECTORY / STATE_DIRECTORY).
+RuntimeDirectory=viddown
+RuntimeDirectoryMode=0700
+StateDirectory=viddown
+StateDirectoryMode=0750
+CacheDirectory=viddown
+
+# ── resource limits (percentages size themselves to the VM) ───────────────────
+# The app reads memory.high and budgets below it; MemoryMax is the hard backstop
+# so a runaway job kills this service (and systemd restarts it), never sshd.
+# CPUQuota is written per machine by install.sh into viddown.service.d/10-cpu.conf.
+MemoryHigh=80%
+MemoryMax=88%
+MemorySwapMax=0
+TasksMax=4096
+LimitNOFILE=65536
+OOMScoreAdjust=500
+
+# ── hardening ────────────────────────────────────────────────────────────────
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+# Not set on purpose: MemoryDenyWriteExecute (deno's V8 JIT needs W+X pages)
+# and ProcSubset=pid (the pressure guard reads /proc/meminfo and /proc/pressure).
+
+[Install]
+WantedBy=multi-user.target

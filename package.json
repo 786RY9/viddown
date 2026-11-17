@@ -1,0 +1,13 @@
+{
+  "name": "viddown",
+  "private": true,
+  "description": "Free, open-source video downloader for Windows, macOS, Linux and Android.",
+  "scripts": {
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@12.16.1"
+}

@@ -1,0 +1,106 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "viddown",
+  "mainBinaryName": "viddown",
+  "version": "0.1.0",
+  "identifier": "dev.ry9.viddown",
+  "build": {
+    "frontendDist": "../../mobile/dist",
+    "devUrl": "http://localhost:8081",
+    "beforeDevCommand": {
+      "script": "pnpm exec expo start --port 8081",
+      "cwd": "../../mobile",
+      "wait": false
+    },
+    "beforeBuildCommand": {
+      "script": "pnpm run export:web",
+      "cwd": "../../mobile",
+      "wait": true
+    }
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "viddown",
+        "width": 1180,
+        "height": 780,
+        "minWidth": 900,
+        "minHeight": 620,
+        "center": true,
+        "resizable": true,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' ipc: http://ipc.localhost",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' asset: data: blob: https:",
+        "font-src": "'self' data:",
+        "connect-src": "'self' ipc: http://ipc.localhost https:",
+        "media-src": "'self' https: blob:"
+      },
+      "devCsp": null,
+      "dangerousDisableAssetCspModification": [
+        "style-src"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "RY9",
+    "category": "Video",
+    "shortDescription": "Free video downloader",
+    "longDescription": "viddown downloads video and audio from your own connection using yt-dlp and ffmpeg.",
+    "copyright": "RY9",
+    "license": "MIT",
+    "externalBin": [
+      "binaries/viddown-ffmpeg",
+      "binaries/viddown-ffprobe"
+    ],
+    "resources": {
+      "binaries/FFMPEG-LICENSE.txt": "FFMPEG-LICENSE.txt"
+    },
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "compression": "lzma"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/786RY9/viddown/releases/latest/download/latest.json"
+      ],
+      "pubkey": "REPLACE_WITH_CONTENTS_OF_viddown.key.pub",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

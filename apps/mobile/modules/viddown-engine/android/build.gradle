@@ -1,0 +1,28 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dev.ry9.viddown.engine'
+version = '0.1.0'
+
+// youtubedl-android (JunkFood02 fork, the one Seal ships). Bundles Python,
+// yt-dlp, QuickJS and ffmpeg as per-ABI native libs. Bump together.
+def ytdlAndroidVersion = '0.18.1'
+
+android {
+  namespace "dev.ry9.viddown.engine"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  implementation "io.github.junkfood02.youtubedl-android:library:${ytdlAndroidVersion}"
+  implementation "io.github.junkfood02.youtubedl-android:ffmpeg:${ytdlAndroidVersion}"
+  implementation "androidx.core:core-ktx:1.13.1"
+}

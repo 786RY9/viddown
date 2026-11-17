@@ -1,0 +1,12 @@
+[Unit]
+Description=viddown blue/green self-update (yt-dlp, ffmpeg, deno, server release)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs the update script shipped with the *live* slot; it builds the idle slot.
+ExecStart=/opt/viddown/current/app/deploy/update.sh
+TimeoutStartSec=45min
+Nice=10
+IOSchedulingClass=idle

@@ -1,0 +1,28 @@
+# Linux test image: runs the whole pytest suite, including the FIFO/process-group
+# streaming tests that can't run on Windows or macOS.
+#
+#   python scripts/vendor_core.py
+#   docker build -f Dockerfile.test -t viddown-server-test .
+#   docker run --rm viddown-server-test                                   # offline suite
+#   docker run --rm -e VIDDOWN_NETWORK_TESTS=1 viddown-server-test        # + real YouTube stream
+#   docker run --rm --platform linux/arm64 ...                            # Ampere-like (slow, emulated)
+FROM python:3.12-slim
+
+# ffmpeg: muxing + test fixtures; procps: `ps` for orphan checks.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ffmpeg procps ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp needs a JavaScript runtime for YouTube; production installs deno the same way.
+COPY --from=denoland/deno:bin-2.5.6 /deno /usr/local/bin/deno
+
+RUN useradd --system --create-home viddown
+WORKDIR /srv/app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt "pytest>=8" "pytest-asyncio>=0.24" "httpx>=0.27"
+
+COPY --chown=viddown:viddown . .
+USER viddown
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+CMD ["python", "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider"]

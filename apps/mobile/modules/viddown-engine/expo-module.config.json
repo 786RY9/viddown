@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["dev.ry9.viddown.engine.ViddownEngineModule"]
+  }
+}

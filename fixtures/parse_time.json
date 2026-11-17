@@ -1,0 +1,26 @@
+{
+  "description": "parse_time / parseTime vectors. expected=null means the input must be rejected.",
+  "cases": [
+    { "input": "323", "expected": "00:05:23" },
+    { "input": "0", "expected": "00:00:00" },
+    { "input": "3600", "expected": "01:00:00" },
+    { "input": "5:23", "expected": "00:05:23" },
+    { "input": "  5:23  ", "expected": "00:05:23" },
+    { "input": "1:05:30", "expected": "01:05:30" },
+    { "input": "75:00", "expected": "00:75:00" },
+    { "input": "5m23s", "expected": "00:05:23" },
+    { "input": "5M23S", "expected": "00:05:23" },
+    { "input": "1h5m30s", "expected": "01:05:30" },
+    { "input": "1h", "expected": "01:00:00" },
+    { "input": "30s", "expected": "00:00:30" },
+    { "input": "2min", "expected": "00:02:00" },
+    { "input": "10sec", "expected": "00:00:10" },
+    { "input": "1h 5m 30s", "expected": "01:05:30" },
+    { "input": "", "expected": null },
+    { "input": "abc", "expected": null },
+    { "input": "5:2", "expected": null },
+    { "input": "1:2:3:4", "expected": null },
+    { "input": "-5", "expected": null },
+    { "input": "5.5", "expected": null }
+  ]
+}
