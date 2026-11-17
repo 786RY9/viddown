@@ -1,0 +1,64 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommitsDisabled"
+  ],
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "timezone": "UTC",
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "description": "Expo SDK packages move together; let `expo install --fix` drive them.",
+      "matchPackageNames": [
+        "expo",
+        "react",
+        "react-dom",
+        "react-native",
+        "/^expo-/",
+        "/^@expo//",
+        "/^react-native-/"
+      ],
+      "groupName": "Expo SDK",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "yt-dlp changes weekly to keep up with sites; ship it fast once CI is green.",
+      "matchPackageNames": [
+        "yt-dlp"
+      ],
+      "automerge": true,
+      "schedule": [
+        "at any time"
+      ]
+    },
+    {
+      "description": "Low-risk updates merge themselves when CI passes.",
+      "matchUpdateTypes": [
+        "patch",
+        "minor"
+      ],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true,
+      "matchPackageNames": [
+        "*",
+        "!expo",
+        "!react-native"
+      ]
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions",
+      "automerge": true
+    }
+  ]
+}

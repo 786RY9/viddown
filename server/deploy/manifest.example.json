@@ -1,0 +1,8 @@
+{
+  "apps": {
+    "android": { "latest": "1.0.0", "minSupported": "1.0.0", "url": "https://github.com/786RY9/viddown/releases/latest" },
+    "desktop": { "latest": "1.0.0", "minSupported": "1.0.0", "url": "https://github.com/786RY9/viddown/releases/latest" }
+  },
+  "notices": [],
+  "killSwitches": { "cloud": false }
+}

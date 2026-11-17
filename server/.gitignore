@@ -1,0 +1,8 @@
+.venv/
+dist/
+state/
+# Copied from ../cli/viddown_core at build time (scripts/vendor_core.py)
+/viddown_core/
+loadtest/results/
+.mypy_cache/
+.ruff_cache/

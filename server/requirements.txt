@@ -1,0 +1,6 @@
+# Runtime dependencies installed into each blue/green slot by deploy/update.sh.
+# yt-dlp is upgraded to the newest release separately and only goes live after smoke.sh passes.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+# curl-cffi lets yt-dlp impersonate a browser; several sites refuse plain clients from servers.
+yt-dlp[default,curl-cffi]

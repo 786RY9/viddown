@@ -1,0 +1,12 @@
+[Unit]
+Description=Point the DuckDNS name at this machine's public IP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/viddown/current/app/deploy/duckdns.sh
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

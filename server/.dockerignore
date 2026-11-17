@@ -1,0 +1,8 @@
+.venv
+dist
+state
+**/__pycache__
+.pytest_cache
+loadtest/results
+.mypy_cache
+.ruff_cache

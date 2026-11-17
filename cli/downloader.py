@@ -40,6 +40,15 @@ from rich.progress import (
     TaskID,
 )
 
+from viddown_core import (
+    parse_time,
+    to_seconds as _to_seconds,
+    filter_video_formats,
+    base_args as _base_args,
+    video_args,
+    audio_args,
+)
+
 # ─── Global console (shared across threads) ───────────────────────────────────
 console = Console(highlight=False)
 
@@ -217,51 +226,6 @@ def run_curses_menu(title: str, options: list[str], subtitle: str = "") -> int:
 
 
 # ─── Time helpers ─────────────────────────────────────────────────────────────
-def parse_time(raw: str) -> Optional[str]:
-    """
-    Accept flexible time input → HH:MM:SS string, or None on failure.
-    Accepts: 5:23 · 1:05:30 · 5m23s · 1h5m30s · 323 (seconds) · 30s
-    """
-    raw = raw.strip().lower()
-
-    # Pure integer → treat as total seconds
-    if re.fullmatch(r"\d+", raw):
-        total = int(raw)
-        h, rem = divmod(total, 3600)
-        mins, secs = divmod(rem, 60)       # renamed: no collision with re match below
-        return f"{h:02d}:{mins:02d}:{secs:02d}"
-
-    # MM:SS or HH:MM:SS
-    match_obj = re.fullmatch(r"(\d+):(\d{2})(?::(\d{2}))?", raw)
-    if match_obj:
-        if match_obj.group(3) is not None:
-            h    = int(match_obj.group(1))
-            mins = int(match_obj.group(2))
-            secs = int(match_obj.group(3))
-        else:
-            h    = 0
-            mins = int(match_obj.group(1))
-            secs = int(match_obj.group(2))
-        return f"{h:02d}:{mins:02d}:{secs:02d}"
-
-    # Flexible: 1h5m30s / 5m23s / 30s / 1h
-    pat = re.fullmatch(
-        r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?\s*(?:(\d+)\s*s(?:ec)?)?", raw
-    )
-    if pat and any(pat.group(i) for i in (1, 2, 3)):
-        h    = int(pat.group(1) or 0)
-        mins = int(pat.group(2) or 0)
-        secs = int(pat.group(3) or 0)
-        return f"{h:02d}:{mins:02d}:{secs:02d}"
-
-    return None
-
-
-def _to_seconds(t: str) -> int:
-    h, m, s = map(int, t.split(":"))
-    return h * 3600 + m * 60 + s
-
-
 def prompt_time(label: str) -> str:
     examples = "e.g. 5:23  or  5m23s  or  323  or  1:05:30"
     while True:
@@ -503,15 +467,6 @@ def _worker(
     return proc.returncode
 
 
-# ─── Core download flags (resume / retry) ────────────────────────────────────
-RESUME_FLAGS = [
-    "--continue",                      # resume partial downloads
-    "--concurrent-fragments", "8",     # 8x multi-threaded parallel fragment downloads (fast 2K/4K)
-    "--fragment-retries", "infinite",  # retry failed fragments until success
-    "--retries", "10",                 # retry full download up to 10 times
-    "--retry-sleep", "5",              # wait 5 s between retries
-]
-
 # Resolve yt-dlp: venv binary, PATH, then `python -m yt_dlp`.
 def _ytdlp_cmd() -> list[str]:
     if os.name == "nt":
@@ -526,28 +481,6 @@ def _ytdlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 YTDLP_CMD = _ytdlp_cmd()
-
-
-def _base_args(
-    url: str,
-    output_template: str,
-    clip: Optional[tuple[str, str]] = None,
-) -> list[str]:
-    args = RESUME_FLAGS + [
-        "-o", output_template,
-        "--no-playlist",
-        "--no-quiet",          # ensure progress lines are emitted even in pipe mode
-        "--progress",
-        "--newline",           # one progress line per \n (no \r overwriting)
-    ]
-    if clip:
-        start, end = clip
-        args += [
-            "--download-sections", f"*{start}-{end}",
-            "--force-keyframes-at-cuts",
-        ]
-    args.append(url)
-    return args
 
 
 # ─── yt-dlp helpers ───────────────────────────────────────────────────────────
@@ -587,30 +520,6 @@ def fetch_formats(url: str) -> tuple[list[dict], str, Optional[float]]:
         sys.exit(1)
     info = json.loads(result.stdout)
     return info.get("formats", []), info.get("title", "Unknown title"), info.get("duration")
-
-
-def filter_video_formats(formats: list[dict]) -> list[dict]:
-    """Deduplicate by resolution (prefer direct HTTP/DASH over m3u8, then highest bitrate), sort best → worst."""
-    seen: dict[int, dict] = {}
-    for fmt in formats:
-        if fmt.get("vcodec", "none") == "none" or not fmt.get("height"):
-            continue
-        h = fmt["height"]
-        protocol = fmt.get("protocol", "")
-        is_m3u8 = "m3u8" in protocol
-
-        if h not in seen:
-            seen[h] = fmt
-        else:
-            prev_fmt = seen[h]
-            prev_is_m3u8 = "m3u8" in prev_fmt.get("protocol", "")
-            # Prefer direct HTTP/DASH over m3u8 (m3u8 is much slower); if same type, compare bitrate
-            if prev_is_m3u8 and not is_m3u8:
-                seen[h] = fmt
-            elif prev_is_m3u8 == is_m3u8:
-                if (fmt.get("tbr") or 0) > (prev_fmt.get("tbr") or 0):
-                    seen[h] = fmt
-    return sorted(seen.values(), key=lambda f: f.get("height", 0), reverse=True)
 
 
 def pick_video_quality(
@@ -666,7 +575,7 @@ def download_video(
               if clip else "%(title)s [%(height)sp].%(ext)s")
 
     console.print(f"\n  [cyan]Downloading {markup_escape(label)} + best audio…[/cyan]")
-    yt_args = ["-f", f"{fmt_id}+bestaudio/best", "--merge-output-format", "mp4"]
+    yt_args = video_args(fmt_id)
     yt_args += _base_args(url, os.path.join(output_dir, tmpl), clip)
     _run_single(yt_args, label, output_dir, clip, video_duration)
 
@@ -683,8 +592,7 @@ def download_audio(
               if clip else "%(title)s [audio].%(ext)s")
 
     console.print(f"\n  [cyan]Downloading {markup_escape(label)}…[/cyan]")
-    yt_args = ["-f", "bestaudio/best", "-x",
-               "--audio-format", "mp3", "--audio-quality", "0"]
+    yt_args = audio_args()
     yt_args += _base_args(url, os.path.join(output_dir, tmpl), clip)
     _run_single(yt_args, label, output_dir, clip, video_duration)
 
@@ -800,14 +708,13 @@ def parallel_download(urls: list[str], output_dir: str, audio_only: bool) -> Non
         if audio_only:
             tmpl    = "%(title)s [audio].%(ext)s"
             yt_args = (
-                ["-f", "bestaudio/best", "-x",
-                 "--audio-format", "mp3", "--audio-quality", "0"]
+                audio_args()
                 + _base_args(url, os.path.join(output_dir, tmpl))
             )
         else:
             tmpl    = "%(title)s [%(height)sp].%(ext)s"
             yt_args = (
-                ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
+                video_args("bestvideo")
                 + _base_args(url, os.path.join(output_dir, tmpl))
             )
 

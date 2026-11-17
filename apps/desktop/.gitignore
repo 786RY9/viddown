@@ -1,0 +1,2 @@
+# Sidecars are fetched per platform by scripts/fetch-sidecars.mjs
+src-tauri/binaries/

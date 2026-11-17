@@ -16,7 +16,8 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy the downloader script
+# Copy the shared core + downloader script
+COPY viddown_core /app/viddown_core
 COPY downloader.py /app/downloader.py
 
 # Default downloads directory (mount a host volume here)

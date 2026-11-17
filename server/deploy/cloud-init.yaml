@@ -1,0 +1,86 @@
+#cloud-config
+# viddown server: paste this into OCI Console -> Create instance -> "Show advanced options"
+# -> Management -> "Paste cloud-init script". Edit the values in /etc/viddown/deploy.env
+# below first. Image: Canonical Ubuntu 24.04 (aarch64). Shape: VM.Standard.A1.Flex.
+#
+# What it does (details in server/README.md):
+#  - packages: curl, jq, sqlite3, git, python3.12, unattended-upgrades, iptables-persistent
+#  - a locked-down `viddown` system user
+#  - unattended security upgrades with an automatic reboot window at 05:00
+#  - clones the repo and runs server/deploy/install.sh, which installs uv, Caddy,
+#    opens 80/443 in iptables (the Oracle Ubuntu gotcha), installs the systemd units,
+#    and builds the first blue/green slot: venv + latest yt-dlp + sha256-verified
+#    ffmpeg (yt-dlp/FFmpeg-Builds linuxarm64) + deno, smoke-tested before going live.
+#
+# Progress: ssh in and run `sudo tail -f /var/log/cloud-init-output.log`
+
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - jq
+  - xz-utils
+  - unzip
+  - sqlite3
+  - git
+  - gnupg
+  - python3.12
+  - python3.12-venv
+  - unattended-upgrades
+  - iptables-persistent
+  - netfilter-persistent
+
+users:
+  - default            # keeps the `ubuntu` user with the SSH key you gave OCI
+  - name: viddown
+    system: true
+    shell: /usr/sbin/nologin
+    homedir: /var/lib/viddown
+    no_create_home: true
+    lock_passwd: true
+
+write_files:
+  - path: /etc/viddown/deploy.env
+    permissions: "0600"
+    owner: root:root
+    content: |
+      # ── EDIT THESE ───────────────────────────────────────────────────────
+      VIDDOWN_DOMAIN=CHANGE-ME.duckdns.org
+      DUCKDNS_TOKEN=CHANGE-ME
+      ACME_EMAIL=you@example.com
+      # Pick a long random topic name: anyone who knows it can read the alerts.
+      NTFY_TOPIC=viddown-CHANGE-ME-to-something-random
+      # ── optional ─────────────────────────────────────────────────────────
+      GITHUB_REPO=786RY9/viddown
+      # release = install GitHub Releases tagged server-v*; git = build from GIT_REF
+      SOURCE=git
+      GIT_REF=main
+      # Object Storage pre-authenticated request URL (bucket, write-only), ends in /o/
+      BACKUP_PAR_URL=
+      SMOKE_URLS="https://archive.org/details/BigBuckBunny_124 https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+      SMOKE_MIN_PASS=1
+
+  - path: /etc/apt/apt.conf.d/52viddown-unattended-upgrades
+    content: |
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "05:00";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  # SSH: keys only.
+  - path: /etc/ssh/sshd_config.d/60-viddown.conf
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+
+runcmd:
+  - [systemctl, reload, ssh]
+  - [bash, -c, "set -a && . /etc/viddown/deploy.env && set +a && git clone --depth 1 --branch \"$GIT_REF\" \"https://github.com/$GITHUB_REPO\" /opt/viddown/src"]
+  - [bash, /opt/viddown/src/server/deploy/install.sh]
+
+final_message: "viddown cloud-init finished after $UPTIME seconds"
